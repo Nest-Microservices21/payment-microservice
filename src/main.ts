@@ -7,7 +7,6 @@ async function bootstrap() {
   const logger = new Logger('Payments-MS');
   const app = await NestFactory.create(AppModule,{ rawBody:true});
   await app.listen(serverConfig.PORT);
-  // app.setGlobalPrefix('api');
   logger.log(`Server running on port ${serverConfig.PORT}`);
 }
 bootstrap();
