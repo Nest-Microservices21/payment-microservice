@@ -10,6 +10,8 @@ import payment from 'src/config/payment';
 import Stripe from 'stripe';
 import { CreatePaymentSessionDto } from './dto/create-payment-session.dto';
 import { type Request } from 'express';
+import { NATS_CLIENT } from 'src/nats-config/nats.module';
+import { ClientProxy } from '@nestjs/microservices';
 
 @Injectable()
 export class PaymentsService {
@@ -18,6 +20,7 @@ export class PaymentsService {
   constructor(
     @Inject(payment.KEY) private paymentConfig: ConfigType<typeof payment>,
     @Inject(base.KEY) private baseConfig: ConfigType<typeof base>,
+    @Inject(NATS_CLIENT) private natsClient: ClientProxy,
   ) {
     this.stripe = new Stripe(paymentConfig.STRIPE_SECRET_KEY);
   }
@@ -49,7 +52,12 @@ export class PaymentsService {
       success_url: `${this.baseConfig.BASE_URL}/payments/success`,
       cancel_url: `${this.baseConfig.BASE_URL}/payments/cancelled`,
     });
-    return session;
+    return {
+      type: session.object,
+      cancelUrl: session.cancel_url,
+      successUrl: session.success_url,
+      url: session.url,
+    };
   }
   async stripeWebhook(req: RawBodyRequest<Request>) {
     const signature = req.headers?.['stripe-signature'];
@@ -66,15 +74,14 @@ export class PaymentsService {
       .then((event) => {
         if (event.type === 'charge.succeeded') {
           const chargedSuccedded = event.data.object;
-          console.log({ event: event.type });
-          console.log({
-            eventBody: chargedSuccedded,
-            type: event.type,
-            orderId: chargedSuccedded.metadata,
-          });
-          return "succedded event"
+          const payload = {
+            stripePaymentId: chargedSuccedded.id,
+            orderId: chargedSuccedded.metadata.orderId,
+            receiptUrl: chargedSuccedded.receipt_url,
+          };
+          this.natsClient.emit('payments.succedded', payload);
         }
-        return 'signature webhook';
+        return { signature };
       })
       .catch((err: Error) => {
         throw new BadRequestException(
@@ -82,5 +89,4 @@ export class PaymentsService {
         );
       });
   }
-  
 }
